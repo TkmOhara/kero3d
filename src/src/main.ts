@@ -101,19 +101,43 @@ loader.load(
     })
     characterContainer.add(characterModel)
 
-    // Setup animations
+    // Setup mixer for animations
+    mixer = new THREE.AnimationMixer(characterModel)
+
+    // Load animations from character model
     if (gltf.animations.length > 0) {
-      mixer = new THREE.AnimationMixer(characterModel)
+      console.log('Character animations:', gltf.animations.map(clip => clip.name))
       gltf.animations.forEach((clip) => {
         const action = mixer!.clipAction(clip)
         actions[clip.name.toLowerCase()] = action
       })
-      // Play idle animation if available
-      if (actions['idle']) {
-        currentAction = actions['idle']
-        currentAction.play()
-      }
     }
+
+    // Load walk animation from separate file
+    loader.load(
+      import.meta.env.BASE_URL + 'models/walk.glb',
+      (walkGltf) => {
+        if (walkGltf.animations.length > 0) {
+          console.log('Walk animations loaded:', walkGltf.animations.map(clip => clip.name))
+          walkGltf.animations.forEach((clip) => {
+            const action = mixer!.clipAction(clip)
+            actions['walk'] = action
+          })
+        }
+        console.log('All available actions:', Object.keys(actions))
+      },
+      undefined,
+      () => {
+        console.log('Walk animation not found at models/walk.glb')
+      }
+    )
+
+    // Play idle animation if available
+    if (actions['idle']) {
+      currentAction = actions['idle']
+      currentAction.play()
+    }
+
     console.log('Model loaded successfully')
   },
   undefined,
@@ -133,18 +157,6 @@ window.addEventListener('keyup', (e) => {
   if (key in keys) keys[key as keyof typeof keys] = false
 })
 
-// Animation helper
-function playAnimation(name: string) {
-  if (!mixer || !actions[name] || currentAction === actions[name]) return
-
-  const newAction = actions[name]
-  if (currentAction) {
-    currentAction.fadeOut(0.2)
-  }
-  newAction.reset().fadeIn(0.2).play()
-  currentAction = newAction
-}
-
 // Update character movement
 function updateCharacter(delta: number) {
   const moveDirection = new THREE.Vector3()
@@ -161,12 +173,18 @@ function updateCharacter(delta: number) {
     characterContainer.position.add(moveDirection.multiplyScalar(moveSpeed * delta))
   }
 
-  // Play walk or idle animation
-  if (mixer) {
-    if (isMoving && actions['walk']) {
-      playAnimation('walk')
-    } else if (!isMoving && actions['idle']) {
-      playAnimation('idle')
+  // Play walk animation when moving, stop when not moving
+  if (mixer && actions['walk']) {
+    if (isMoving) {
+      if (currentAction !== actions['walk']) {
+        actions['walk'].reset().fadeIn(0.2).play()
+        currentAction = actions['walk']
+      }
+    } else {
+      if (currentAction === actions['walk']) {
+        actions['walk'].fadeOut(0.2)
+        currentAction = null
+      }
     }
   }
 }
