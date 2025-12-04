@@ -6,6 +6,8 @@ services:
     ports:
       - "5173:5173"
     volumes:
-      - .:/app:cached
+      - ./src:/app:cached
       - /app/node_modules
-    command: npm run dev -- --host 0.0.0.0
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    command: pnpm run dev
