@@ -1,7 +1,5 @@
 import * as THREE from 'three'
-// @ts-expect-error - Three.js examples imports
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-// @ts-expect-error - Three.js examples imports
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import './style.css'
 
