@@ -87,7 +87,7 @@ loader.load(
     characterContainer.remove(placeholder)
     characterModel = gltf.scene
     characterModel.scale.set(2, 2, 2)
-    characterModel.rotation.y = Math.PI / 2 // Face forward (model's initial orientation fix)
+    characterModel.rotation.y = Math.PI // Face forward (model's initial orientation fix)
 
     // Calculate bounding box and adjust Y position to stand on ground
     const box = new THREE.Box3().setFromObject(characterModel)
