@@ -6,7 +6,7 @@ WORKDIR /app
 
 COPY src/package.json src/pnpm-lock.yaml* ./
 
-RUN pnpm install --frozen-lockfile
+RUN pnpm install
 
 EXPOSE 5173
 
