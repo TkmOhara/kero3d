@@ -66,6 +66,12 @@ const moveSpeed = 5
 const rotateSpeed = 3
 const keys = { w: false, a: false, s: false, d: false }
 
+// Jump state
+let isJumping = false
+let velocityY = 0
+const gravity = -20
+const jumpForce = 8
+
 // Camera offset for third-person view
 const cameraOffset = new THREE.Vector3(0, 3, 6)
 
@@ -124,11 +130,31 @@ loader.load(
             actions['walk'] = action
           })
         }
-        console.log('All available actions:', Object.keys(actions))
       },
       undefined,
       () => {
         console.log('Walk animation not found at models/walk.glb')
+      }
+    )
+
+    // Load jump animation from separate file
+    loader.load(
+      import.meta.env.BASE_URL + 'models/jump.glb',
+      (jumpGltf) => {
+        if (jumpGltf.animations.length > 0) {
+          console.log('Jump animations loaded:', jumpGltf.animations.map(clip => clip.name))
+          jumpGltf.animations.forEach((clip) => {
+            const action = mixer!.clipAction(clip)
+            action.setLoop(THREE.LoopOnce, 1)
+            action.clampWhenFinished = true
+            actions['jump'] = action
+          })
+        }
+        console.log('All available actions:', Object.keys(actions))
+      },
+      undefined,
+      () => {
+        console.log('Jump animation not found at models/jump.glb')
       }
     )
 
@@ -150,6 +176,20 @@ loader.load(
 window.addEventListener('keydown', (e) => {
   const key = e.key.toLowerCase()
   if (key in keys) keys[key as keyof typeof keys] = true
+
+  // Jump on space
+  if (e.code === 'Space' && !isJumping) {
+    isJumping = true
+    velocityY = jumpForce
+    // Play jump animation
+    if (mixer && actions['jump']) {
+      if (currentAction) {
+        currentAction.fadeOut(0.1)
+      }
+      actions['jump'].reset().fadeIn(0.1).play()
+      currentAction = actions['jump']
+    }
+  }
 })
 
 window.addEventListener('keyup', (e) => {
@@ -173,18 +213,32 @@ function updateCharacter(delta: number) {
     characterContainer.position.add(moveDirection.multiplyScalar(moveSpeed * delta))
   }
 
-  // Play walk animation when moving, stop when not moving
-  if (mixer && actions['walk']) {
-    if (isMoving) {
+  // Jump physics
+  if (isJumping) {
+    velocityY += gravity * delta
+    characterContainer.position.y += velocityY * delta
+
+    // Check if landed
+    if (characterContainer.position.y <= 0) {
+      characterContainer.position.y = 0
+      isJumping = false
+      velocityY = 0
+    }
+  }
+
+  // Play animations based on state
+  if (mixer) {
+    if (isJumping) {
+      // Jump animation is already playing
+    } else if (isMoving && actions['walk']) {
       if (currentAction !== actions['walk']) {
+        if (currentAction) currentAction.fadeOut(0.2)
         actions['walk'].reset().fadeIn(0.2).play()
         currentAction = actions['walk']
       }
-    } else {
-      if (currentAction === actions['walk']) {
-        actions['walk'].fadeOut(0.2)
-        currentAction = null
-      }
+    } else if (!isMoving && currentAction === actions['walk']) {
+      actions['walk'].fadeOut(0.2)
+      currentAction = null
     }
   }
 }
