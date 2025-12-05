@@ -74,7 +74,6 @@ const jumpForce = 8
 
 // Punch state
 let isPunching = false
-let punchCooldown = 0
 
 // Health system
 let playerHealth = 100
@@ -106,12 +105,8 @@ const enemies: Enemy[] = []
 const punchRange = 3
 const punchDamage = 10
 
-// Player attack cooldown
-const playerPunchCooldown = 2.0
-
 // Enemy combat settings
 const enemyPunchDamage = 10  // Significantly reduced damage
-const enemyBasicCooldown = 5.0  // Base cooldown between attacks (5 seconds)
 const enemyMinAttackInterval = 8.0  // Minimum 8 seconds between attacks for better game balance
 
 const playerCollisionRadius = 0.8
@@ -666,7 +661,6 @@ window.addEventListener('keyup', (e) => {
 window.addEventListener('mousedown', (e) => {
   if (e.button === 0 && !isPunching && !isJumping && !gameOver) { // Left click
     isPunching = true
-    punchCooldown = playerPunchCooldown
     playAnimation('punch', false)
     handlePunchAttack()
   }
