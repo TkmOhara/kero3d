@@ -243,6 +243,8 @@ let isPunching = false
 let playerHealth = 100
 const maxHealth = 100
 let gameOver = false
+let gameWon = false
+let initialEnemyCount = 0
 let damageFlashDuration = 0
 const damageFlashMaxDuration = 0.3
 
@@ -448,6 +450,7 @@ function playEnemyAnimation(enemy: Enemy, name: string, loop: boolean = true) {
 createEnemy(-15, 20)
 createEnemy(25, -20)
 createEnemy(10, 25)
+initialEnemyCount = enemies.length
 
 // Function to update enemy AI
 function updateEnemies(delta: number) {
@@ -629,6 +632,68 @@ function showGameOverScreen() {
   })
 
   overlay.appendChild(gameOverText)
+  overlay.appendChild(retryButton)
+  document.body.appendChild(overlay)
+}
+
+// Function to show result screen when all enemies are defeated
+function showResultScreen() {
+  const overlay = document.createElement('div')
+  overlay.style.position = 'fixed'
+  overlay.style.top = '0'
+  overlay.style.left = '0'
+  overlay.style.width = '100%'
+  overlay.style.height = '100%'
+  overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)'
+  overlay.style.display = 'flex'
+  overlay.style.flexDirection = 'column'
+  overlay.style.justifyContent = 'center'
+  overlay.style.alignItems = 'center'
+  overlay.style.zIndex = '9999'
+  overlay.style.pointerEvents = 'auto'
+
+  const resultText = document.createElement('div')
+  resultText.style.color = '#FFD700'
+  resultText.style.fontSize = '48px'
+  resultText.style.fontWeight = 'bold'
+  resultText.style.marginBottom = '20px'
+  resultText.textContent = 'VICTORY!'
+
+  const statsText = document.createElement('div')
+  statsText.style.color = 'white'
+  statsText.style.fontSize = '24px'
+  statsText.style.marginBottom = '40px'
+  statsText.textContent = `All ${initialEnemyCount} enemies defeated!\nPlayer Health: ${playerHealth}/${maxHealth}`
+  statsText.style.textAlign = 'center'
+  statsText.style.whiteSpace = 'pre-wrap'
+
+  const retryButton = document.createElement('button')
+  retryButton.textContent = 'PLAY AGAIN'
+  retryButton.style.padding = '15px 40px'
+  retryButton.style.fontSize = '24px'
+  retryButton.style.fontWeight = 'bold'
+  retryButton.style.color = 'white'
+  retryButton.style.backgroundColor = '#4CAF50'
+  retryButton.style.border = 'none'
+  retryButton.style.borderRadius = '5px'
+  retryButton.style.cursor = 'pointer'
+  retryButton.style.transition = 'background-color 0.3s'
+  retryButton.style.pointerEvents = 'auto'
+  
+  retryButton.addEventListener('mouseover', () => {
+    retryButton.style.backgroundColor = '#66BB6A'
+  })
+  
+  retryButton.addEventListener('mouseout', () => {
+    retryButton.style.backgroundColor = '#4CAF50'
+  })
+  
+  retryButton.addEventListener('click', () => {
+    window.location.reload()
+  })
+
+  overlay.appendChild(resultText)
+  overlay.appendChild(statsText)
   overlay.appendChild(retryButton)
   document.body.appendChild(overlay)
 }
@@ -938,6 +1003,12 @@ function animate() {
   updateHUD()
   updateDamageFlash()
   updateCamera()
+
+  // Check if all enemies are defeated
+  if (!gameOver && !gameWon && enemies.length === 0 && initialEnemyCount > 0) {
+    gameWon = true
+    showResultScreen()
+  }
 
   if (mixer) mixer.update(delta)
   controls.update()
