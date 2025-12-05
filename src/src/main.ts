@@ -66,6 +66,170 @@ const moveSpeed = 5
 const rotateSpeed = 3
 const keys = { w: false, a: false, s: false, d: false }
 
+// Mobile support
+const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+let touchPadActive = false
+const mobileControlsRadius = 60
+
+function createMobileControls() {
+  const container = document.createElement('div')
+  container.id = 'mobile-controls'
+  container.style.position = 'fixed'
+  container.style.bottom = '20px'
+  container.style.width = '100%'
+  container.style.display = 'flex'
+  container.style.justifyContent = 'space-around'
+  container.style.alignItems = 'flex-end'
+  container.style.pointerEvents = 'none'
+  container.style.zIndex = '1000'
+
+  // Trackpad
+  const trackpad = document.createElement('div')
+  trackpad.id = 'trackpad'
+  trackpad.style.width = '120px'
+  trackpad.style.height = '120px'
+  trackpad.style.backgroundColor = 'rgba(100, 100, 100, 0.5)'
+  trackpad.style.border = '2px solid rgba(255, 255, 255, 0.7)'
+  trackpad.style.borderRadius = '10px'
+  trackpad.style.pointerEvents = 'auto'
+  trackpad.style.touchAction = 'none'
+  trackpad.style.position = 'relative'
+
+  const trackpadIndicator = document.createElement('div')
+  trackpadIndicator.style.position = 'absolute'
+  trackpadIndicator.style.width = '30px'
+  trackpadIndicator.style.height = '30px'
+  trackpadIndicator.style.backgroundColor = 'rgba(255, 255, 255, 0.8)'
+  trackpadIndicator.style.borderRadius = '50%'
+  trackpadIndicator.style.top = '50%'
+  trackpadIndicator.style.left = '50%'
+  trackpadIndicator.style.transform = 'translate(-50%, -50%)'
+  trackpadIndicator.id = 'trackpad-indicator'
+
+  trackpad.appendChild(trackpadIndicator)
+
+  // Attack button
+  const attackButton = document.createElement('button')
+  attackButton.textContent = 'ATTACK'
+  attackButton.style.padding = '15px 30px'
+  attackButton.style.fontSize = '16px'
+  attackButton.style.fontWeight = 'bold'
+  attackButton.style.backgroundColor = '#ff6b6b'
+  attackButton.style.color = 'white'
+  attackButton.style.border = 'none'
+  attackButton.style.borderRadius = '8px'
+  attackButton.style.cursor = 'pointer'
+  attackButton.style.pointerEvents = 'auto'
+  attackButton.style.marginRight = '20px'
+  attackButton.style.transition = 'background-color 0.2s'
+
+  attackButton.addEventListener('touchstart', () => {
+    attackButton.style.backgroundColor = '#ff8787'
+  })
+
+  attackButton.addEventListener('touchend', () => {
+    attackButton.style.backgroundColor = '#ff6b6b'
+    if (!isPunching && !isJumping && !gameOver) {
+      isPunching = true
+      playAnimation('punch', false)
+      handlePunchAttack()
+    }
+  })
+
+  // Jump button
+  const jumpButton = document.createElement('button')
+  jumpButton.textContent = 'JUMP'
+  jumpButton.style.padding = '15px 30px'
+  jumpButton.style.fontSize = '16px'
+  jumpButton.style.fontWeight = 'bold'
+  jumpButton.style.backgroundColor = '#4fc3f7'
+  jumpButton.style.color = 'white'
+  jumpButton.style.border = 'none'
+  jumpButton.style.borderRadius = '8px'
+  jumpButton.style.cursor = 'pointer'
+  jumpButton.style.pointerEvents = 'auto'
+  jumpButton.style.marginLeft = '20px'
+  jumpButton.style.transition = 'background-color 0.2s'
+
+  jumpButton.addEventListener('touchstart', () => {
+    jumpButton.style.backgroundColor = '#81d4fa'
+  })
+
+  jumpButton.addEventListener('touchend', () => {
+    jumpButton.style.backgroundColor = '#4fc3f7'
+    if (!isJumping && !isPunching) {
+      isJumping = true
+      velocityY = jumpForce
+      playAnimation('jump', false)
+    }
+  })
+
+  container.appendChild(trackpad)
+  container.appendChild(attackButton)
+  container.appendChild(jumpButton)
+  document.body.appendChild(container)
+
+  // Trackpad touch handlers
+  trackpad.addEventListener('touchstart', () => {
+    touchPadActive = true
+  })
+
+  trackpad.addEventListener('touchmove', (e) => {
+    if (!touchPadActive) return
+
+    const rect = trackpad.getBoundingClientRect()
+    const currentX = e.touches[0].clientX - rect.left - rect.width / 2
+    const currentY = e.touches[0].clientY - rect.top - rect.height / 2
+
+    const distance = Math.sqrt(currentX * currentX + currentY * currentY)
+    const maxDistance = mobileControlsRadius
+
+    let displayX = currentX
+    let displayY = currentY
+
+    if (distance > maxDistance) {
+      const angle = Math.atan2(currentY, currentX)
+      displayX = Math.cos(angle) * maxDistance
+      displayY = Math.sin(angle) * maxDistance
+    }
+
+    const indicator = document.getElementById('trackpad-indicator') as HTMLElement
+    if (indicator) {
+      indicator.style.transform = `translate(calc(-50% + ${displayX}px), calc(-50% + ${displayY}px))`
+    }
+
+    // Convert trackpad input to movement
+    const moveX = currentX / maxDistance
+    const moveY = currentY / maxDistance
+
+    keys.w = moveY < -0.3
+    keys.s = moveY > 0.3
+    keys.a = moveX < -0.3
+    keys.d = moveX > 0.3
+  })
+
+  trackpad.addEventListener('touchend', () => {
+    touchPadActive = false
+    keys.w = false
+    keys.s = false
+    keys.a = false
+    keys.d = false
+
+    const indicator = document.getElementById('trackpad-indicator') as HTMLElement
+    if (indicator) {
+      indicator.style.transform = 'translate(-50%, -50%)'
+    }
+  })
+}
+
+// Initialize mobile controls if on mobile
+if (isMobile) {
+  document.addEventListener('DOMContentLoaded', createMobileControls)
+  if (document.readyState !== 'loading') {
+    createMobileControls()
+  }
+}
+
 // Jump state
 let isJumping = false
 let velocityY = 0
