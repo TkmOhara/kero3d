@@ -290,7 +290,6 @@ const loader = new GLTFLoader()
 let hiroshimaAudio: HTMLAudioElement | null = null
 let punchAudio: HTMLAudioElement | null = null
 let musicAudio: HTMLAudioElement | null = null
-let musicNeedsGesture = false
 
 function loadSounds() {
   try {
