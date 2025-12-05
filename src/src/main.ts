@@ -119,6 +119,25 @@ const cameraOffset = new THREE.Vector3(0, 3, 6)
 // Load character model
 const loader = new GLTFLoader()
 
+// Audio for enemy attacks
+let hiroshimaAudio: HTMLAudioElement | null = null
+
+function loadAttackSound() {
+  hiroshimaAudio = new Audio(import.meta.env.BASE_URL + 'sounds/hiroshima.mp3')
+  hiroshimaAudio.volume = 0.3
+}
+
+function playAttackSound() {
+  if (hiroshimaAudio) {
+    hiroshimaAudio.currentTime = 0
+    hiroshimaAudio.play().catch(() => {
+      console.log('Audio playback failed or was interrupted')
+    })
+  }
+}
+
+loadAttackSound()
+
 // Function to create an enemy AI character
 function createEnemy(x: number, z: number): Enemy {
   const container = new THREE.Group()
@@ -313,6 +332,9 @@ function updateEnemies(delta: number) {
         if (enemy.actions['punch']) {
           playEnemyAnimation(enemy, 'punch', false)
         }
+        
+        // Play attack sound
+        playAttackSound()
       }
       
       // Deal damage at the right timing during punch animation
