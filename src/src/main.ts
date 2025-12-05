@@ -285,23 +285,54 @@ const cameraOffset = new THREE.Vector3(0, 3, 6)
 // Load character model
 const loader = new GLTFLoader()
 
-// Audio for enemy attacks
+ 
+// Audio: attack sounds and background music
 let hiroshimaAudio: HTMLAudioElement | null = null
 let punchAudio: HTMLAudioElement | null = null
+let musicAudio: HTMLAudioElement | null = null
+let musicNeedsGesture = false
 
-function loadAttackSound() {
-  hiroshimaAudio = new Audio(import.meta.env.BASE_URL + 'sounds/hiroshima.mp3')
-  hiroshimaAudio.volume = 0.3
-  
-  punchAudio = new Audio(import.meta.env.BASE_URL + 'sounds/punch.mp3')
-  punchAudio.volume = 0.5
+function loadSounds() {
+  try {
+    hiroshimaAudio = new Audio(import.meta.env.BASE_URL + 'sounds/hiroshima.mp3')
+    hiroshimaAudio.volume = 0.3
+
+    punchAudio = new Audio(import.meta.env.BASE_URL + 'sounds/punch.mp3')
+    punchAudio.volume = 0.5
+
+    musicAudio = new Audio(import.meta.env.BASE_URL + 'sounds/music.mp3')
+    musicAudio.loop = true
+    musicAudio.volume = 0.1
+    // Try autoplay; if it fails due to user gesture policy, attach a one-time
+    // gesture listener so the first user interaction starts the music.
+    const playPromise = musicAudio.play()
+    if (playPromise !== undefined) {
+      playPromise.then(() => {
+        console.log('Background music started playing automatically')
+        // autoplay succeeded
+      }).catch(() => {
+        // Autoplay blocked — start on first user gesture
+        const startMusicOnGesture = () => {
+          if (musicAudio) {
+            musicAudio.play().catch(() => {})
+          }
+          window.removeEventListener('touchstart', startMusicOnGesture)
+          window.removeEventListener('mousedown', startMusicOnGesture)
+        }
+        window.addEventListener('touchstart', startMusicOnGesture, { once: true })
+        window.addEventListener('mousedown', startMusicOnGesture, { once: true })
+      })
+    }
+  } catch (e) {
+    console.warn('Failed to initialize audio elements', e)
+  }
 }
 
 function playAttackSound() {
   if (hiroshimaAudio) {
     hiroshimaAudio.currentTime = 0
     hiroshimaAudio.play().catch(() => {
-      console.log('Audio playback failed or was interrupted')
+      // ignore playback failure
     })
   }
 }
@@ -310,12 +341,13 @@ function playPunchSound() {
   if (punchAudio) {
     punchAudio.currentTime = 0
     punchAudio.play().catch(() => {
-      console.log('Punch audio playback failed or was interrupted')
+      // ignore playback failure
     })
   }
 }
 
-loadAttackSound()
+// Initialize audio elements
+loadSounds()
 
 // Function to create an enemy AI character
 function createEnemy(x: number, z: number): Enemy {
