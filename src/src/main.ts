@@ -74,12 +74,418 @@ const jumpForce = 8
 
 // Punch state
 let isPunching = false
+let punchCooldown = 0
+
+// Health system
+let playerHealth = 100
+const maxHealth = 100
+let gameOver = false
+let damageFlashDuration = 0
+const damageFlashMaxDuration = 0.3
+
+// Enemy system
+interface Enemy {
+  container: THREE.Group
+  health: number
+  maxHealth: number
+  punchCooldown: number
+  lastPunchTime: number
+  targetDirection: THREE.Vector3
+  model: THREE.Object3D | null
+  mixer: THREE.AnimationMixer | null
+  actions: { [key: string]: THREE.AnimationAction }
+  currentAction: THREE.AnimationAction | null
+  isAttacking: boolean
+  punchAnimationDuration: number
+  punchHitTiming: number
+  punchHitCooldown: number
+}
+
+const enemies: Enemy[] = []
+// Combat constants
+const punchRange = 3
+const punchDamage = 10
+
+// Player attack cooldown
+const playerPunchCooldown = 2.0
+
+// Enemy combat settings
+const enemyPunchDamage = 10  // Significantly reduced damage
+const enemyBasicCooldown = 5.0  // Base cooldown between attacks (5 seconds)
+const enemyMinAttackInterval = 8.0  // Minimum 8 seconds between attacks for better game balance
+
+const playerCollisionRadius = 0.8
+const enemyCollisionRadius = 0.8
+const minEnemyPlayerDistance = playerCollisionRadius + enemyCollisionRadius
 
 // Camera offset for third-person view
 const cameraOffset = new THREE.Vector3(0, 3, 6)
 
 // Load character model
 const loader = new GLTFLoader()
+
+// Function to create an enemy AI character
+function createEnemy(x: number, z: number): Enemy {
+  const container = new THREE.Group()
+  container.position.set(x, 0, z)
+  scene.add(container)
+
+  // Placeholder for enemy (box until model is loaded)
+  const enemyGeometry = new THREE.BoxGeometry(0.5, 1.5, 0.5)
+  const enemyMaterial = new THREE.MeshStandardMaterial({ color: 0xff6b6b })
+  const enemyMesh = new THREE.Mesh(enemyGeometry, enemyMaterial)
+  enemyMesh.position.y = 0.75
+  enemyMesh.castShadow = true
+  container.add(enemyMesh)
+
+  const enemy: Enemy = {
+    container,
+    health: 100,
+    maxHealth: 100,
+    punchCooldown: 0,
+    lastPunchTime: 0,
+    targetDirection: new THREE.Vector3(),
+    model: null,
+    mixer: null,
+    actions: {},
+    currentAction: null,
+    isAttacking: false,
+    punchAnimationDuration: 0.6,
+    punchHitTiming: 0.3,
+    punchHitCooldown: 0
+  }
+
+  enemies.push(enemy)
+  
+  // Load character model for enemy
+  loader.load(
+    import.meta.env.BASE_URL + 'models/character.glb',
+    (gltf) => {
+      container.remove(enemyMesh)
+      const enemyModel = gltf.scene
+      enemyModel.scale.set(1, 1, 1)
+      enemyModel.rotation.y = 0
+      
+      const box = new THREE.Box3().setFromObject(enemyModel)
+      const groundOffset = -box.min.y * enemyModel.scale.y - 1
+      enemyModel.position.y = groundOffset
+      
+      enemyModel.castShadow = true
+      enemyModel.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          child.castShadow = true
+        }
+      })
+      container.add(enemyModel)
+      
+      // Setup animation mixer for enemy
+      enemy.model = enemyModel
+      enemy.mixer = new THREE.AnimationMixer(enemyModel)
+      
+      // Load animations for enemy
+      loadEnemyAnimations(enemy)
+    },
+    undefined,
+    () => {
+      console.log('Failed to load enemy model, using placeholder')
+    }
+  )
+  
+  return enemy
+}
+
+// Function to load animations for enemy
+async function loadEnemyAnimations(enemy: Enemy) {
+  if (!enemy.mixer || !enemy.model) return
+
+  const animationFiles = [
+    { name: 'idle', file: 'idle.glb' },
+    { name: 'run', file: 'running.glb' },
+    { name: 'punch', file: 'punching.glb' }
+  ]
+
+  for (const anim of animationFiles) {
+    try {
+      const gltf = await loader.loadAsync(import.meta.env.BASE_URL + 'models/' + anim.file)
+      if (gltf.animations.length > 0) {
+        const clip = gltf.animations[0]
+        clip.name = anim.name
+        const action = enemy.mixer!.clipAction(clip)
+        enemy.actions[anim.name] = action
+        
+        // Record punch animation duration
+        if (anim.name === 'punch') {
+          enemy.punchAnimationDuration = clip.duration
+          enemy.punchHitTiming = clip.duration * 0.5 // Hit at middle of animation
+        }
+        
+        console.log(`Enemy animation loaded: ${anim.name} (duration: ${clip.duration.toFixed(2)}s)`)
+      }
+    } catch (e) {
+      console.error(`Failed to load enemy animation: ${anim.file}`, e)
+    }
+  }
+
+  // Start with idle animation
+  if (enemy.actions['idle']) {
+    playEnemyAnimation(enemy, 'idle')
+  }
+}
+
+// Function to play animation for enemy
+function playEnemyAnimation(enemy: Enemy, name: string, loop: boolean = true) {
+  if (!enemy.mixer || !enemy.actions[name]) return
+
+  const newAction = enemy.actions[name]
+
+  if (enemy.currentAction === newAction && newAction.isRunning()) return
+
+  if (enemy.currentAction) {
+    enemy.currentAction.fadeOut(0.2)
+  }
+
+  newAction.reset()
+  newAction.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
+  newAction.clampWhenFinished = !loop
+  newAction.fadeIn(0.2)
+  newAction.play()
+
+  enemy.currentAction = newAction
+}
+
+// Create 3 enemy AI characters
+createEnemy(-15, 20)
+createEnemy(25, -20)
+createEnemy(10, 25)
+
+// Function to update enemy AI
+function updateEnemies(delta: number) {
+  enemies.forEach((enemy, index) => {
+    if (enemy.health <= 0) {
+      scene.remove(enemy.container)
+      enemies.splice(index, 1)
+      return
+    }
+
+    // Update mixer
+    if (enemy.mixer) {
+      enemy.mixer.update(delta)
+    }
+
+    // Calculate distance to player
+    const distanceToPlayer = characterContainer.position.distanceTo(enemy.container.position)
+    
+    // Enemy AI behavior
+    if (distanceToPlayer < 30) {
+      // Move towards player only if not attacking
+      if (!enemy.isAttacking) {
+        const direction = new THREE.Vector3()
+          .subVectors(characterContainer.position, enemy.container.position)
+          .normalize()
+        
+        // Apply collision detection - prevent enemy from overlapping with player
+        const nextPosition = enemy.container.position.clone().add(direction.multiplyScalar(3 * delta))
+        const nextDistance = characterContainer.position.distanceTo(nextPosition)
+        
+        if (nextDistance > minEnemyPlayerDistance) {
+          enemy.container.position.copy(nextPosition)
+        } else {
+          // Stop moving if too close
+          enemy.container.position.lerp(characterContainer.position, 0.01)
+        }
+
+        // Face the player - rotate container instead of using lookAt
+        const angle = Math.atan2(direction.x, direction.z)
+        enemy.container.rotation.y = angle
+
+        // Play run animation if not attacking
+        if (enemy.actions['run']) {
+          playEnemyAnimation(enemy, 'run')
+        }
+      }
+
+      // Attack if close enough
+      enemy.punchCooldown -= delta
+      
+      if (distanceToPlayer < punchRange && enemy.punchCooldown <= 0 && !enemy.isAttacking) {
+        enemy.isAttacking = true
+        enemy.punchHitCooldown = enemy.punchHitTiming
+        // Total cooldown: animation duration + base cooldown + random variation
+        enemy.punchCooldown = enemy.punchAnimationDuration + enemyMinAttackInterval
+        console.log(`Enemy starts punch! Next attack in ${(enemy.punchCooldown).toFixed(2)}s`)
+        
+        // Play punch animation
+        if (enemy.actions['punch']) {
+          playEnemyAnimation(enemy, 'punch', false)
+        }
+      }
+      
+      // Deal damage at the right timing during punch animation
+      if (enemy.isAttacking && enemy.punchHitCooldown > 0) {
+        enemy.punchHitCooldown -= delta
+        
+        // Trigger damage when hit timing is reached
+        if (enemy.punchHitCooldown <= 0 && distanceToPlayer < punchRange) {
+          playerHealth -= enemyPunchDamage
+          damageFlashDuration = damageFlashMaxDuration
+          console.log(`Enemy hit! Player health: ${playerHealth}`)
+          
+          if (playerHealth <= 0) {
+            gameOver = true
+            console.log('Game Over! You were defeated!')
+            showGameOverScreen()
+          }
+        }
+      }
+      
+      // Return to idle after punch animation finishes
+      if (enemy.isAttacking && enemy.punchCooldown <= enemyMinAttackInterval) {
+        enemy.isAttacking = false
+        if (enemy.actions['idle']) {
+          playEnemyAnimation(enemy, 'idle')
+        }
+      }
+    } else {
+      // Play idle animation when far from player
+      if (enemy.actions['idle'] && !enemy.isAttacking) {
+        playEnemyAnimation(enemy, 'idle')
+      }
+    }
+  })
+}
+
+// Function to check punch collision with enemies
+function handlePunchAttack() {
+  if (!isPunching) return
+
+  enemies.forEach((enemy) => {
+    const distanceToEnemy = characterContainer.position.distanceTo(enemy.container.position)
+    
+    // Check if enemy is in front of player and within punch range
+    if (distanceToEnemy < punchRange) {
+      const directionToEnemy = new THREE.Vector3()
+        .subVectors(enemy.container.position, characterContainer.position)
+        .normalize()
+      
+      const facingDirection = new THREE.Vector3(0, 0, -1)
+        .applyAxisAngle(new THREE.Vector3(0, 1, 0), characterContainer.rotation.y)
+      
+      // Check if enemy is roughly in front (dot product > 0.3)
+      if (directionToEnemy.dot(facingDirection) > 0.3) {
+        enemy.health -= punchDamage
+        console.log(`Hit enemy! Enemy health: ${enemy.health}`)
+        
+        if (enemy.health <= 0) {
+          console.log('Enemy defeated!')
+          // Enemy will be removed in updateEnemies
+        }
+      }
+    }
+  })
+}
+
+// Function to show game over screen
+function showGameOverScreen() {
+  const overlay = document.createElement('div')
+  overlay.style.position = 'fixed'
+  overlay.style.top = '0'
+  overlay.style.left = '0'
+  overlay.style.width = '100%'
+  overlay.style.height = '100%'
+  overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)'
+  overlay.style.display = 'flex'
+  overlay.style.flexDirection = 'column'
+  overlay.style.justifyContent = 'center'
+  overlay.style.alignItems = 'center'
+  overlay.style.zIndex = '9999'
+  overlay.style.pointerEvents = 'auto'
+
+  const gameOverText = document.createElement('div')
+  gameOverText.style.color = 'white'
+  gameOverText.style.fontSize = '48px'
+  gameOverText.style.fontWeight = 'bold'
+  gameOverText.style.marginBottom = '40px'
+  gameOverText.textContent = 'GAME OVER'
+
+  const retryButton = document.createElement('button')
+  retryButton.textContent = 'RETRY'
+  retryButton.style.padding = '15px 40px'
+  retryButton.style.fontSize = '24px'
+  retryButton.style.fontWeight = 'bold'
+  retryButton.style.color = 'white'
+  retryButton.style.backgroundColor = '#ff6b6b'
+  retryButton.style.border = 'none'
+  retryButton.style.borderRadius = '5px'
+  retryButton.style.cursor = 'pointer'
+  retryButton.style.transition = 'background-color 0.3s'
+  retryButton.style.pointerEvents = 'auto'
+  
+  retryButton.addEventListener('mouseover', () => {
+    retryButton.style.backgroundColor = '#ff8787'
+  })
+  
+  retryButton.addEventListener('mouseout', () => {
+    retryButton.style.backgroundColor = '#ff6b6b'
+  })
+  
+  retryButton.addEventListener('click', () => {
+    window.location.reload()
+  })
+
+  overlay.appendChild(gameOverText)
+  overlay.appendChild(retryButton)
+  document.body.appendChild(overlay)
+}
+
+// Function to display HUD with health
+function updateHUD() {
+  let hud = document.getElementById('hud')
+  if (!hud) {
+    hud = document.createElement('div')
+    hud.id = 'hud'
+    hud.style.position = 'fixed'
+    hud.style.top = '10px'
+    hud.style.left = '10px'
+    hud.style.color = 'white'
+    hud.style.fontSize = '20px'
+    hud.style.fontFamily = 'Arial, sans-serif'
+    hud.style.zIndex = '1000'
+    document.body.appendChild(hud)
+  }
+
+  const healthPercentage = (playerHealth / maxHealth) * 100
+  const healthColor = healthPercentage > 50 ? '#00ff00' : healthPercentage > 25 ? '#ffaa00' : '#ff0000'
+  
+  hud.innerHTML = `
+    <div>Health: <span style="color: ${healthColor}">${Math.max(0, playerHealth)}</span>/${maxHealth}</div>
+    <div>Enemies: ${enemies.length}</div>
+  `
+}
+
+// Function to update damage flash effect
+function updateDamageFlash() {
+  let damageOverlay = document.getElementById('damage-flash')
+  if (damageFlashDuration > 0) {
+    if (!damageOverlay) {
+      damageOverlay = document.createElement('div')
+      damageOverlay.id = 'damage-flash'
+      damageOverlay.style.position = 'fixed'
+      damageOverlay.style.top = '0'
+      damageOverlay.style.left = '0'
+      damageOverlay.style.width = '100%'
+      damageOverlay.style.height = '100%'
+      damageOverlay.style.pointerEvents = 'none'
+      damageOverlay.style.zIndex = '500'
+      document.body.appendChild(damageOverlay)
+    }
+    
+    const opacity = damageFlashDuration / damageFlashMaxDuration
+    damageOverlay.style.backgroundColor = `rgba(255, 0, 0, ${opacity * 0.5})`
+    damageFlashDuration -= 0.016 // roughly 60fps
+  } else if (damageOverlay) {
+    damageOverlay.remove()
+  }
+}
 
 // Placeholder character (box) until model is loaded
 const placeholderGeometry = new THREE.BoxGeometry(0.5, 1.5, 0.5)
@@ -258,9 +664,11 @@ window.addEventListener('keyup', (e) => {
 
 // Mouse click for punching
 window.addEventListener('mousedown', (e) => {
-  if (e.button === 0 && !isPunching && !isJumping) { // Left click
+  if (e.button === 0 && !isPunching && !isJumping && !gameOver) { // Left click
     isPunching = true
+    punchCooldown = playerPunchCooldown
     playAnimation('punch', false)
+    handlePunchAttack()
   }
 })
 
@@ -331,6 +739,9 @@ function animate() {
   const delta = clock.getDelta()
 
   updateCharacter(delta)
+  updateEnemies(delta)
+  updateHUD()
+  updateDamageFlash()
   updateCamera()
 
   if (mixer) mixer.update(delta)
