@@ -72,6 +72,9 @@ let velocityY = 0
 const gravity = -20
 const jumpForce = 8
 
+// Punch state
+let isPunching = false
+
 // Camera offset for third-person view
 const cameraOffset = new THREE.Vector3(0, 3, 6)
 
@@ -86,18 +89,102 @@ placeholder.position.y = 0.75
 placeholder.castShadow = true
 characterContainer.add(placeholder)
 
+// Function to play animation with crossfade
+function playAnimation(name: string, loop: boolean = true) {
+  if (!mixer || !actions[name]) {
+    console.warn(`Animation not available: ${name}`)
+    return
+  }
+
+  const newAction = actions[name]
+
+  if (currentAction === newAction && newAction.isRunning()) return
+
+  if (currentAction) {
+    currentAction.fadeOut(0.2)
+  }
+
+  newAction.reset()
+  newAction.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
+  newAction.clampWhenFinished = !loop
+  newAction.fadeIn(0.2)
+  newAction.play()
+
+  currentAction = newAction
+  console.log(`Playing: ${name}`)
+}
+
+// Load all animations after model is loaded
+async function loadAnimations() {
+  if (!mixer || !characterModel) return
+
+  // Log character's bone structure for debugging
+  console.log('=== Character bone structure ===')
+  const boneNames: string[] = []
+  characterModel.traverse((child) => {
+    if (child instanceof THREE.Bone || child.type === 'Bone') {
+      boneNames.push(child.name)
+    }
+  })
+  console.log('Bones:', boneNames.slice(0, 5).join(', '), '...')
+
+  const animationFiles = [
+    { name: 'idle', file: 'idle.glb' },
+    { name: 'run', file: 'running.glb' },
+    { name: 'jump', file: 'jump.glb' },
+    { name: 'punch', file: 'punching.glb' }
+  ]
+
+  for (const anim of animationFiles) {
+    try {
+      const gltf = await loader.loadAsync(import.meta.env.BASE_URL + 'models/' + anim.file)
+      if (gltf.animations.length > 0) {
+        const clip = gltf.animations[0]
+
+        // Log first track to see the format
+        if (clip.tracks.length > 0) {
+          console.log(`${anim.name} first track: "${clip.tracks[0].name}"`)
+        }
+
+        // Use clip directly without retargeting (names should already match)
+        clip.name = anim.name
+        const action = mixer.clipAction(clip)
+        actions[anim.name] = action
+        console.log(`Animation loaded: ${anim.name} (${clip.tracks.length} tracks, ${clip.duration.toFixed(2)}s)`)
+      }
+    } catch (e) {
+      console.error(`Failed to load animation: ${anim.file}`, e)
+    }
+  }
+
+  console.log('All available actions:', Object.keys(actions))
+
+  // Verify mixer can find bones
+  const testBone = characterModel.getObjectByName('mixamorigHips')
+  console.log(`Can find mixamorigHips by name: ${testBone ? 'YES' : 'NO'}`)
+  if (testBone) {
+    console.log(`Bone type: ${testBone.type}, parent: ${testBone.parent?.name}`)
+  }
+
+  // Start with idle animation
+  if (actions['idle']) {
+    playAnimation('idle')
+  }
+}
+
 // Try to load GLTF model
 loader.load(
   import.meta.env.BASE_URL + 'models/character.glb',
   (gltf) => {
     characterContainer.remove(placeholder)
     characterModel = gltf.scene
-    characterModel.scale.set(2, 2, 2)
+    characterModel.scale.set(1, 1, 1) // Smaller scale
     characterModel.rotation.y = Math.PI // Face forward (model's initial orientation fix)
 
     // Calculate bounding box and adjust Y position to stand on ground
     const box = new THREE.Box3().setFromObject(characterModel)
-    characterModel.position.y = -box.min.y
+    const groundOffset = -box.min.y * characterModel.scale.y - 1 // Lower to ground
+    characterModel.position.y = groundOffset
 
     characterModel.castShadow = true
     characterModel.traverse((child) => {
@@ -107,62 +194,41 @@ loader.load(
     })
     characterContainer.add(characterModel)
 
-    // Setup mixer for animations
+    // Setup mixer for animations - use the whole model as root
+    // The mixer will search for bones by name in the hierarchy
     mixer = new THREE.AnimationMixer(characterModel)
 
-    // Load animations from character model
-    if (gltf.animations.length > 0) {
-      console.log('Character animations:', gltf.animations.map(clip => clip.name))
-      gltf.animations.forEach((clip) => {
-        const action = mixer!.clipAction(clip)
-        actions[clip.name.toLowerCase()] = action
-      })
-    }
+    // Log the hierarchy for debugging
+    console.log('=== Model hierarchy ===')
+    characterModel.traverse((child) => {
+      console.log(`${child.type}: ${child.name}`)
+    })
 
-    // Load walk animation from separate file
-    loader.load(
-      import.meta.env.BASE_URL + 'models/walk.glb',
-      (walkGltf) => {
-        if (walkGltf.animations.length > 0) {
-          console.log('Walk animations loaded:', walkGltf.animations.map(clip => clip.name))
-          walkGltf.animations.forEach((clip) => {
-            const action = mixer!.clipAction(clip)
-            actions['walk'] = action
-          })
+    // Listen for animation finished events
+    mixer.addEventListener('finished', (e) => {
+      const finishedAction = e.action
+      if (finishedAction === actions['jump']) {
+        isJumping = false
+        // Return to idle or run based on movement
+        if (keys.w || keys.s) {
+          playAnimation('run')
+        } else {
+          playAnimation('idle')
         }
-      },
-      undefined,
-      () => {
-        console.log('Walk animation not found at models/walk.glb')
       }
-    )
-
-    // Load jump animation from separate file
-    loader.load(
-      import.meta.env.BASE_URL + 'models/jump.glb',
-      (jumpGltf) => {
-        if (jumpGltf.animations.length > 0) {
-          console.log('Jump animations loaded:', jumpGltf.animations.map(clip => clip.name))
-          jumpGltf.animations.forEach((clip) => {
-            const action = mixer!.clipAction(clip)
-            action.setLoop(THREE.LoopOnce, 1)
-            action.clampWhenFinished = true
-            actions['jump'] = action
-          })
+      if (finishedAction === actions['punch']) {
+        isPunching = false
+        // Return to idle or run based on movement
+        if (keys.w || keys.s) {
+          playAnimation('run')
+        } else {
+          playAnimation('idle')
         }
-        console.log('All available actions:', Object.keys(actions))
-      },
-      undefined,
-      () => {
-        console.log('Jump animation not found at models/jump.glb')
       }
-    )
+    })
 
-    // Play idle animation if available
-    if (actions['idle']) {
-      currentAction = actions['idle']
-      currentAction.play()
-    }
+    // Load all animations
+    loadAnimations()
 
     console.log('Model loaded successfully')
   },
@@ -178,23 +244,24 @@ window.addEventListener('keydown', (e) => {
   if (key in keys) keys[key as keyof typeof keys] = true
 
   // Jump on space
-  if (e.code === 'Space' && !isJumping) {
+  if (e.code === 'Space' && !isJumping && !isPunching) {
     isJumping = true
     velocityY = jumpForce
-    // Play jump animation
-    if (mixer && actions['jump']) {
-      if (currentAction) {
-        currentAction.fadeOut(0.1)
-      }
-      actions['jump'].reset().fadeIn(0.1).play()
-      currentAction = actions['jump']
-    }
+    playAnimation('jump', false)
   }
 })
 
 window.addEventListener('keyup', (e) => {
   const key = e.key.toLowerCase()
   if (key in keys) keys[key as keyof typeof keys] = false
+})
+
+// Mouse click for punching
+window.addEventListener('mousedown', (e) => {
+  if (e.button === 0 && !isPunching && !isJumping) { // Left click
+    isPunching = true
+    playAnimation('punch', false)
+  }
 })
 
 // Update character movement
@@ -213,32 +280,25 @@ function updateCharacter(delta: number) {
     characterContainer.position.add(moveDirection.multiplyScalar(moveSpeed * delta))
   }
 
-  // Jump physics
-  if (isJumping) {
+  // Jump physics - always apply if character is above ground or has velocity
+  if (isJumping || characterContainer.position.y > 0) {
     velocityY += gravity * delta
     characterContainer.position.y += velocityY * delta
 
     // Check if landed
     if (characterContainer.position.y <= 0) {
       characterContainer.position.y = 0
-      isJumping = false
       velocityY = 0
+      isJumping = false
     }
   }
 
-  // Play animations based on state
-  if (mixer) {
-    if (isJumping) {
-      // Jump animation is already playing
-    } else if (isMoving && actions['walk']) {
-      if (currentAction !== actions['walk']) {
-        if (currentAction) currentAction.fadeOut(0.2)
-        actions['walk'].reset().fadeIn(0.2).play()
-        currentAction = actions['walk']
-      }
-    } else if (!isMoving && currentAction === actions['walk']) {
-      actions['walk'].fadeOut(0.2)
-      currentAction = null
+  // Play animations based on state (only if not jumping or punching)
+  if (mixer && !isJumping && !isPunching) {
+    if (isMoving && currentAction !== actions['run']) {
+      playAnimation('run')
+    } else if (!isMoving && currentAction !== actions['idle']) {
+      playAnimation('idle')
     }
   }
 }
@@ -284,3 +344,7 @@ renderer.setAnimationLoop(animate)
 // Initial camera position
 camera.position.set(0, 3, 6)
 controls.target.set(0, 1.5, 0)
+
+// Debug info
+console.log('Controls: W/S = move, A/D = rotate, Space = jump, Left Click = punch')
+console.log('Check console for animation debugging info')
