@@ -285,10 +285,14 @@ const loader = new GLTFLoader()
 
 // Audio for enemy attacks
 let hiroshimaAudio: HTMLAudioElement | null = null
+let punchAudio: HTMLAudioElement | null = null
 
 function loadAttackSound() {
   hiroshimaAudio = new Audio(import.meta.env.BASE_URL + 'sounds/hiroshima.mp3')
   hiroshimaAudio.volume = 0.3
+  
+  punchAudio = new Audio(import.meta.env.BASE_URL + 'sounds/punch.mp3')
+  punchAudio.volume = 0.5
 }
 
 function playAttackSound() {
@@ -296,6 +300,15 @@ function playAttackSound() {
     hiroshimaAudio.currentTime = 0
     hiroshimaAudio.play().catch(() => {
       console.log('Audio playback failed or was interrupted')
+    })
+  }
+}
+
+function playPunchSound() {
+  if (punchAudio) {
+    punchAudio.currentTime = 0
+    punchAudio.play().catch(() => {
+      console.log('Punch audio playback failed or was interrupted')
     })
   }
 }
@@ -509,6 +522,7 @@ function updateEnemies(delta: number) {
         if (enemy.punchHitCooldown <= 0 && distanceToPlayer < punchRange) {
           playerHealth -= enemyPunchDamage
           damageFlashDuration = damageFlashMaxDuration
+          playPunchSound()
           console.log(`Enemy hit! Player health: ${playerHealth}`)
           
           if (playerHealth <= 0) {
@@ -554,6 +568,7 @@ function handlePunchAttack() {
       // Check if enemy is roughly in front (dot product > 0.3)
       if (directionToEnemy.dot(facingDirection) > 0.3) {
         enemy.health -= punchDamage
+        playPunchSound()
         console.log(`Hit enemy! Enemy health: ${enemy.health}`)
         
         if (enemy.health <= 0) {
