@@ -8,9 +8,16 @@ services:
     volumes:
       - ./src/src:/app/src:cached
       - ./src/public:/app/public:cached
+      - ./src/kero_bevy:/app/kero_bevy:cached
       - ./src/index.html:/app/index.html:cached
       - ./src/vite.config.js:/app/vite.config.js:cached
       - ./src/tsconfig.json:/app/tsconfig.json:cached
+      - cargo_cache:/root/.cargo/registry
+      - target_cache:/app/kero_bevy/target
     environment:
       - CHOKIDAR_USEPOLLING=true
     command: pnpm run dev
+
+volumes:
+  cargo_cache:
+  target_cache:

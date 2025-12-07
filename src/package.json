@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:wasm": "cd kero_bevy && wasm-pack build --target web --out-dir ../src/pkg",
     "preview": "vite preview"
   },
   "dependencies": {
